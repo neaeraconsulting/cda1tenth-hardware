@@ -28,7 +28,7 @@
 // Steering control parameters
 #define STEERING_CORRECTION_INTERVAL 10000
 #define STEERING_GEAR_RATIO (55.0f/12.0f)
-#define STEERING_MAX_ALLOWED_ERROR 1.5f
+#define STEERING_MAX_ALLOWED_ERROR 3.0f
 #define STALL_DETECTION_COUNT 8
 #define SMALL_MOVEMENT_THRESHOLD 0.2f
 
@@ -112,4 +112,4 @@ private:
   void applyMotorSpeeds();
 };
 
-#endif // CAR_H   
+#endif // CAR_H

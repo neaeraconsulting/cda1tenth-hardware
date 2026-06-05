@@ -1,6 +1,6 @@
 # Micro-controller Firmware
 
-This firmware runs on an ESP32-S3 microcontroller to control a 1/10th scale autonomous vehicle. It provides motor control, steering, IMU sensing, and ROS 2 integration via micro-ROS.
+This firmware runs on an ESP32-S3 microcontroller to control a 1/10th scale autonomous vehicle. It provides motor control, steering, IMU sensing, USB serial status output, and simple USB serial commands for hardware bring-up.
 
 ## Hardware Requirements
 
@@ -14,7 +14,7 @@ This firmware runs on an ESP32-S3 microcontroller to control a 1/10th scale auto
 - **LSM6DSO IMU** sensor (6-DOF accelerometer/gyroscope)
 - **Motors**: Stepper motors for drive and steering
 - **Power Supply**: Appropriate voltage/current for motors and ESP32
-- **USB-C Cable**: For programming and micro-ROS communication
+- **USB-C Cable**: For programming, status output, and bring-up commands
 
 ### Pin Connections
 
@@ -56,7 +56,7 @@ The firmware uses the following GPIO pins on the ESP32-S3:
 
 2. Use a USB cable to connect your laptop to the micro-controller board's USB-C port
 
-3. Put the ESP32 into the manual bootloader mode ([docs by EXPRESSIF](https://docs.espressif.com/projects/esptool/en/latest/esp32/advanced-topics/boot-mode-selection.html#manual-bootloader)).
+3. Put the ESP32 into the manual bootloader mode if needed ([docs by EXPRESSIF](https://docs.espressif.com/projects/esptool/en/latest/esp32/advanced-topics/boot-mode-selection.html#manual-bootloader)).
 
 4. Upload to your ESP32:
 
@@ -64,370 +64,194 @@ The firmware uses the following GPIO pins on the ESP32-S3:
    pio run --target upload
    ```
 
-5. Monitor serial output:
+5. Monitor serial output at 115200 baud:
 
    ```bash
-   pio device monitor
+   pio device monitor --baud 115200
    ```
 
-## micro-ROS Agent Setup
-
-The firmware communicates with ROS 2 through a micro-ROS agent that must be running on your computer. The agent bridges the serial connection between the ESP32 and your ROS 2 network.
-
-### Quick Start
-
-A startup script is provided (`micro-ros-startup.sh`) that launches the agent with the correct settings:
+If `pio` is not on your shell path, this local install path worked during development:
 
 ```bash
-./micro-ros-startup.sh
+/home/george/.platformio/penv/bin/pio run
 ```
 
-### Manual Setup
+## USB Serial Commands
 
-If you need to run the agent manually or on a different system:
+The firmware accepts newline-terminated commands over USB serial. Type commands into the serial monitor and press Enter.
 
-1. **Install micro-ROS Agent** (if using Vulcanexus distribution):
+| Command | Description |
+| ------- | ----------- |
+| `help` | Print the command list |
+| `status` | Print current command, motor, steering, IMU, and calibration status |
+| `zero_steer` | Save the current steering sensor angle as the steering center |
+| `offset <deg>` | Manually set and save the steering encoder offset |
+| `steer <deg>` | Command a steering angle in degrees |
+| `speed <rpm>` | Command drive motor speed in RPM without changing steering target |
+| `v <linear_mps> <angular_radps>` | Command linear velocity and angular velocity |
+| `stop` | Stop drive motion and return steering target to zero |
 
-   ```bash
-   source /opt/vulcanexus/humble/setup.bash
-   ```
+Recommended first steering calibration:
 
-2. **Identify the serial port**:
-
-   - **Linux**: Usually `/dev/ttyACM0` or `/dev/ttyUSB0`
-   - **Windows**: Usually `COM3`, `COM4`, etc. (check Device Manager)
-   - **macOS**: Usually `/dev/cu.usbmodem*` or `/dev/tty.usbmodem*`
-
-3. **Run the agent**:
-
-   ```bash
-   ros2 run micro_ros_agent micro_ros_agent serial --dev <PORT> --baudrate 921600 -v6
-   ```
-
-   Example for Linux:
-
-   ```bash
-   ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/ttyACM0 --baudrate 921600 -v6
-   ```
-
-   Example for Windows (using WSL or native):
-
-   ```bash
-   ros2 run micro_ros_agent micro_ros_agent serial --dev COM3 --baudrate 921600 -v6
-   ```
-
-### Verifying Connection
-
-Once the agent is running and the ESP32 is powered on:
-
-- The ESP32 LED should turn **ON** (solid) when connected
-- You should see connection messages in the agent terminal
-- You can verify topics are available:
-  ```bash
-  ros2 topic list
-  ```
-  You should see `/car/car_state` and `/car/debug_data` topics.
-
-## ROS 2 Topics and Messages
-
-The `car_controller` node communicates via the following ROS 2 topics:
-
-### Subscriptions
-
-| Topic               | Message Type               | Description                             | Rate                          |
-| ------------------- | -------------------------- | --------------------------------------- | ----------------------------- |
-| `/cmd_vel_filtered` | `geometry_msgs/Twist`      | Velocity commands (linear.x, angular.z) | Variable                      |
-| `/car/config`       | `car_config_msg/CarConfig` | Configuration parameters                | 1 Hz (from car_odometry node) |
-
-**`/cmd_vel_filtered` (geometry_msgs/Twist):**
-
-- `linear.x`: Forward/backward velocity in m/s
-- `angular.z`: Rotational velocity in rad/s
-- **Safety**: Commands timeout after 200ms if no new command is received (car stops)
-
-**`/car/config` (car_config_msg/CarConfig):**
-
-- `wheelbase`: Distance between front and rear axles (meters)
-- `track_width`: Distance between left and right wheels (meters)
-- `wheel_radius`: Wheel radius (meters)
-- `encoder_offset`: Steering encoder offset (degrees)
-- `max_steering_angle`: Maximum steering angle (degrees)
-- `max_rpm`: Maximum motor RPM
-
-### Publications
-
-| Topic             | Message Type                 | Description                                | Rate  |
-| ----------------- | ---------------------------- | ------------------------------------------ | ----- |
-| `/car/car_state`  | `car_state_msg/CarState`     | Complete car state (IMU, motors, steering) | 20 Hz |
-| `/car/debug_data` | `std_msgs/Float32MultiArray` | Debug information array                    | 2 Hz  |
-
-**`/car/car_state` (car_state_msg/CarState):**
-
-- `header`: ROS 2 header with timestamp and frame_id ("base_link")
-- `accel_x/y/z`: Accelerometer data (m/s²)
-- `gyro_x/y/z`: Gyroscope data (rad/s)
-- `speed`: Current car speed (m/s)
-- `steering_angle`: Actual steering angle (degrees)
-- `right_motor_rpm`: Right motor RPM
-- `left_motor_rpm`: Left motor RPM
-
-**`/car/debug_data` (std_msgs/Float32MultiArray):**
-
-- Array of 20 float values containing debug information (see Debug Data section below)
-
-### Viewing Topics
-
-To monitor the car state:
-
-```bash
-ros2 topic echo /car/car_state
+```text
+zero_steer
+status
+steer 1
+status
+steer -1
+status
+stop
 ```
 
-To send velocity commands:
+`zero_steer` stores the steering center in ESP32 nonvolatile storage. The saved value is loaded automatically on boot. `offset <deg>` can be used to set that value manually.
 
-```bash
-ros2 topic pub --once /cmd_vel_filtered geometry_msgs/msg/Twist "{linear: {x: 0.5, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.2}}"
-```
+Keep the car lifted or otherwise restrained during early motor tests.
 
 ## System Architecture
 
-The firmware implements a multi-timer control system with ROS 2 integration via micro-ROS:
+The firmware implements a single-threaded USB bring-up control loop:
 
 ```mermaid
 graph TB
 
-subgraph ROS["ROS 2 System"]
-    CMD[cmd_vel_filtered]
-    CONFIG[car/config]
-    STATE[car_state]
-    DEBUG[debug_data]
-end
-
-subgraph AGENT["micro-ROS Agent"]
-    BRIDGE[Serial/USB Bridge]
+subgraph HOST["Host Computer"]
+    USB[USB Serial Monitor]
 end
 
 subgraph FW["ESP32-S3 Firmware"]
-    NODE[car_controller Node]
+    CMD[USB Command Parser]
     CONTROL[Control Logic]
     SENSORS[Sensing]
     MOTORCTRL[Motor Control]
+    STATUS[Status Printer]
 end
 
 subgraph HW["Hardware"]
     MOTORS[Drive & Steering Motors]
     IMU[IMU]
-    ENC[Steering Encoder]
+    ENC[Steering Sensor]
     LED[Status LED]
 end
 
-%% ROS2 topics to micro-ROS Agent
-CMD --> BRIDGE
-CONFIG --> BRIDGE
-
-%% Agent to Firmware
-BRIDGE --> NODE
-
-%% Main data flow inside firmware
-NODE --> CONTROL
-NODE --> SENSORS
-
+USB --> CMD
+CMD --> CONTROL
 SENSORS --> CONTROL
 CONTROL --> MOTORCTRL
-
-%% Firmware to hardware
 MOTORCTRL --> MOTORS
 SENSORS --> IMU
 SENSORS --> ENC
 CONTROL --> LED
-
-%% Firmware publishes back to ROS 2
-CONTROL --> STATE
-CONTROL --> DEBUG
-STATE --> BRIDGE
-DEBUG --> BRIDGE
+SENSORS --> STATUS
+CONTROL --> STATUS
+STATUS --> USB
 ```
 
-### Control Loops
+### Control Loop
 
-1. **Control Timer** (20ms / 50 Hz)
+The main Arduino `loop()` runs three activities:
 
-   - Processes velocity commands
-   - Calculates steering angles and motor speeds
-   - Updates motor control loops
+1. **Command Handling**
+
+   - Reads USB serial input
+   - Parses text commands
+   - Updates velocity, speed, steering, and calibration targets
+
+2. **50 Hz Control Update**
+
    - Updates IMU sensor readings
+   - Converts velocity commands into steering angle and RPM
+   - Applies steering and drive motor targets
 
-2. **Kinematics Timer** (50ms / 20 Hz)
+3. **1 Hz Status Output**
 
-   - Publishes car state to `/car/car_state`
-   - Includes IMU data, motor RPMs, steering angle
-
-3. **Debug Timer** (500ms / 2 Hz)
-   - Publishes debug data array to `/car/debug_data`
-   - Includes system health, timing, and diagnostic information
+   - Prints command state
+   - Prints steering target and measured steering angle
+   - Prints motor RPM
+   - Prints IMU accelerometer and gyro readings
 
 ### Data Flow
 
-The diagram above shows the complete system architecture. Key data flows:
+Key data flows:
 
-- **Command Flow**: `/cmd_vel_filtered` → micro-ROS Agent → ESP32 → Motor Control
-- **Configuration Flow**: `/car/config` → micro-ROS Agent → ESP32 → Parameter Updates
-- **State Flow**: ESP32 Sensors → Control System → `/car/car_state` → ROS 2 Network
-- **Debug Flow**: ESP32 Diagnostics → Debug Timer → `/car/debug_data` → ROS 2 Network
-
-### Connection States
-
-The firmware manages connection state through a state machine:
-
-- **WAITING_AGENT**: Waiting for micro-ROS agent to be available
-- **AGENT_AVAILABLE**: Agent detected, creating ROS entities
-- **AGENT_CONNECTED**: Connected and operating normally
-- **AGENT_DISCONNECTED**: Connection lost, cleaning up
+- **Command Flow**: USB serial command -> ESP32 parser -> control logic -> motor targets
+- **Sensor Flow**: IMU and steering sensor -> sensor manager -> status output/control logic
+- **Motor Flow**: control logic -> TMC5160 drivers over SPI -> drive and steering motors
+- **Status Flow**: ESP32 diagnostics -> USB serial monitor
 
 ## LED Status Codes
 
 The ESP32 board LED (IO 37) provides visual feedback about the system status:
 
-| LED Pattern              | Meaning                                                |
-| ------------------------ | ------------------------------------------------------ |
-| **1 flash**              | Waiting for USB serial connection                      |
-| **2 flashes**            | Initial setup complete                                 |
-| **3 flashes**            | Sensor initialization failed OR connection established |
-| **4 flashes**            | Failed to create ROS entities (retrying)               |
-| **5 flashes**            | micro-ROS agent disconnected                           |
-| **6 flashes**            | micro-ROS transport initialized                        |
-| **7 flashes**            | Main loop started                                      |
-| **8 flashes**            | Waiting for micro-ROS agent                            |
-| **Solid ON**             | Connected and operating normally                       |
-| **Solid OFF**            | Not connected or error state                           |
-| **Continuous 2 flashes** | Fatal ROS error (system halted)                        |
+| LED Pattern   | Meaning                           |
+| ------------- | --------------------------------- |
+| **1 flash**   | Waiting for USB serial connection |
+| **2 flashes** | Initial setup complete            |
+| **3 flashes** | Sensor initialization failed      |
 
 ## Configuring the Car Controller
 
-The `car_controller` node on the ESP32 receives its configuration from the `car_odometry` node via the `/car/config` topic. To configure parameters such as `encoder_offset`, `wheel_radius`, `wheelbase`, `track_width`, `max_steering_angle`, and `max_rpm`, you need to set them in the `car_odometry` node.
+The controller has several important physical and safety parameters:
 
-For detailed instructions on how to configure the `car_odometry` node and set parameters like `encoder_offset`, please refer to the [car_odometry README](https://github.com/Michael7371/cda1tenth-bringup/blob/develop/car_odom_node/README.md).
+| Parameter | Default | Description |
+| --------- | ------- | ----------- |
+| `wheel_radius` | `0.0325` m | Wheel radius used to convert linear speed into RPM |
+| `wheelbase` | `0.185` m | Distance between front and rear axles |
+| `track_width` | `0.15` m | Distance between left and right wheels |
+| `encoder_offset` | `187.5` deg | Steering sensor angle treated as centered |
+| `max_steering_angle` | `30.0` deg | Maximum steering command |
+| `max_rpm` | `300.0` RPM | Maximum motor speed command |
 
-The `car_odometry` node publishes configuration messages to `/car/config` at 1 Hz, which the `car_controller` node subscribes to and uses to update its internal parameters.
+### Steering Offset Calibration
 
-### Quick Reference
+The `encoder_offset` parameter is particularly important for accurate steering control. It compensates for the steering sensor's raw angle when the wheels are physically centered.
 
-The `encoder_offset` parameter is particularly important for accurate steering control. It compensates for the initial encoder position and should be calibrated for your specific hardware setup. Other key parameters include:
+To calibrate:
 
-- `wheel_radius`: Wheel radius in meters (default: 0.0325)
-- `wheelbase`: Distance between front and rear axles in meters (default: 0.185)
-- `track_width`: Distance between left and right wheels in meters (default: 0.15)
-- `encoder_offset`: Steering encoder offset in degrees (default: 187.5)
-- `max_steering_angle`: Maximum steering angle in degrees (default: 30.0)
-- `max_rpm`: Maximum motor RPM (default: 300.0)
+1. Physically center the front wheels.
+2. Send:
 
-See the [car_odometry README](https://github.com/Michael7371/cda1tenth-bringup/blob/develop/car_odom_node/README.md) for complete parameter documentation and configuration instructions.
-
-## Installing Custom Message Packages
-
-The firmware uses custom ROS 2 message packages (`car_state_msg` and `car_config_msg`) that need to be built in your ROS 2 workspace.
-
-1. Navigate to your ROS 2 workspace:
-
-   ```bash
-   # If you don't have a workspace, create one:
-   mkdir -p ~/ros2_ws/src
-   cd ~/ros2_ws/src
+   ```text
+   zero_steer
    ```
 
-2. Copy the message packages from `extra_packages/` to your workspace:
+3. Check:
 
-   ```bash
-   # Copy car_state_msg and car_config_msg to your workspace src directory
+   ```text
+   status
    ```
 
-3. Resolve dependencies:
+`actual_steer` should be close to zero when the wheels are centered.
 
-   ```bash
-   cd ~/ros2_ws
-   rosdep install --from-paths src --ignore-src -r -y
-   ```
+You can also set an offset manually:
 
-4. Build the packages:
-
-   ```bash
-   colcon build --packages-select car_state_msg car_config_msg
-   ```
-
-5. Source your workspace:
-
-   ```bash
-   source install/local_setup.bash
-   ```
-
-## Debug Data
-
-The `/car/debug_data` topic publishes a Float32MultiArray with 20 elements containing diagnostic information:
-
-| Index | Description             | Units                         |
-| ----- | ----------------------- | ----------------------------- |
-| 0     | Status flag             | 1.0 = active                  |
-| 1     | Milliseconds timestamp  | ms                            |
-| 2     | Accelerometer X         | m/s²                          |
-| 3     | Accelerometer Y         | m/s²                          |
-| 4     | Accelerometer Z         | m/s²                          |
-| 5     | Gyroscope X             | rad/s                         |
-| 6     | Gyroscope Y             | rad/s                         |
-| 7     | Gyroscope Z             | rad/s                         |
-| 8     | Car speed               | m/s                           |
-| 9     | Steering angle          | degrees                       |
-| 10    | Connection state        | 0-3 (see System Architecture) |
-| 11    | Free heap memory        | bytes                         |
-| 12    | Total heap size         | bytes                         |
-| 13    | Command linear.x        | m/s                           |
-| 14    | Command angular.z       | rad/s                         |
-| 15    | Time since last command | ms                            |
-| 16    | Time offset (ROS sync)  | ms                            |
-| 17    | Right motor RPM         | RPM                           |
-| 18    | Left motor RPM          | RPM                           |
-| 19    | CPU frequency           | MHz                           |
-
-To view debug data:
-
-```bash
-ros2 topic echo /car/debug_data
+```text
+offset 135.5
 ```
+
+## Status Data
+
+The `status` command and automatic 1 Hz status line report:
+
+| Field | Description | Units |
+| ----- | ----------- | ----- |
+| `ms` | Milliseconds since boot | ms |
+| `cmd_v` | Commanded linear velocity | m/s |
+| `cmd_w` | Commanded angular velocity | rad/s |
+| `cmd_rpm` | Commanded speed target | RPM |
+| `speed` | Current target car speed | RPM |
+| `steer` | Commanded steering angle | degrees |
+| `actual_steer` | Measured steering angle from the steering sensor | degrees |
+| `offset` | Active steering center offset | degrees |
+| `rpm_r` | Right motor RPM estimate | RPM |
+| `rpm_l` | Left motor RPM estimate | RPM |
+| `accel` | Accelerometer X/Y/Z | g |
+| `gyro` | Gyroscope X/Y/Z | rad/s |
 
 ## Troubleshooting
 
-### Agent Not Connecting
-
-**Symptoms**: LED stays off or flashes 8 times repeatedly, no topics visible in ROS 2
-
-**Solutions**:
-
-1. Verify the micro-ROS agent is running:
-
-   ```bash
-   ros2 node list
-   ```
-
-   You should see the agent node.
-
-2. Check the serial port:
-
-   - Verify the USB cable is connected
-   - Check the port name matches in the agent command
-   - Try a different USB port or cable
-
-3. Check baud rate: Ensure agent is using 921600 baud
-
-4. Verify ESP32 is powered and booted properly
-
-5. Check serial monitor for error messages:
-
-   ```bash
-   pio device monitor
-   ```
-
 ### Motors Not Responding
 
-**Symptoms**: Car doesn't move when commands are sent
+**Symptoms**: Car does not move when commands are sent
 
 **Solutions**:
 
@@ -436,10 +260,11 @@ ros2 topic echo /car/debug_data
 3. Check enable pin (IO 4) is properly configured
 4. Verify motor wiring (phases, power)
 5. Check serial monitor for motor-related errors
-6. Verify `/cmd_vel_filtered` topic is receiving messages:
+6. Try a small command first:
 
-   ```bash
-   ros2 topic echo /cmd_vel_filtered
+   ```text
+   speed 10
+   stop
    ```
 
 ### IMU Not Initializing
@@ -456,11 +281,11 @@ ros2 topic echo /car/debug_data
 
 ### Serial Port Issues
 
-**Symptoms**: Cannot upload firmware or connect to agent
+**Symptoms**: Cannot upload firmware or monitor serial output
 
 **Solutions**:
 
-1. **Windows**: Install USB-to-Serial drivers (CP210x or CH340)
+1. **Windows**: Install USB-to-Serial drivers if required by your board
 2. **Linux**: Add user to dialout group:
 
    ```bash
@@ -474,8 +299,13 @@ ros2 topic echo /car/debug_data
    ls -l /dev/ttyACM0
    ```
 
-4. Try different USB cable (some cables are power-only)
+4. Try a different USB cable (some cables are power-only)
 5. Check if another program is using the port
+6. List ports:
+
+   ```bash
+   pio device list
+   ```
 
 ### Build Errors
 
@@ -490,69 +320,52 @@ ros2 topic echo /car/debug_data
    ```
 
 2. Clean and rebuild:
+
    ```bash
    pio run --target clean
    pio run
    ```
-3. Clean micro-ROS build:
-   ```bash
-   pio run --target clean_microros
-   pio run
-   ```
-4. Verify all dependencies in `platformio.ini` are accessible
-5. Check internet connection (needed for first-time dependency download)
 
-### ROS 2 Topics Not Appearing
-
-**Symptoms**: Agent connected but topics not visible
-
-**Solutions**:
-
-1. Verify workspace is sourced:
-   ```bash
-   source ~/ros2_ws/install/local_setup.bash
-   ```
-2. Check topic list:
-   ```bash
-   ros2 topic list
-   ```
-3. Verify custom message packages are built and sourced
-4. Check agent is using correct ROS 2 distribution (Humble)
-5. Restart the agent
+3. Verify all dependencies in `platformio.ini` are accessible
+4. Check internet connection for first-time dependency download
 
 ### Steering Not Accurate
 
-**Symptoms**: Steering angle doesn't match commands
+**Symptoms**: Steering angle does not match commands
 
 **Solutions**:
 
-1. Calibrate `encoder_offset` parameter (see Configuration section)
+1. Calibrate steering offset with `zero_steer`
 2. Verify steering sensor (IO 18) is connected
 3. Check steering motor wiring and power
 4. Verify gear ratio matches hardware (55:12 default)
 5. Check for mechanical binding or resistance
+6. Test with very small commands:
 
-### Command Timeout Issues
+   ```text
+   speed 5
+   steer 1
+   steer -1
+   stop
+   ```
 
-**Symptoms**: Car stops unexpectedly after 200ms
+### Steering Moves Only Briefly Or Only When Speed Is Set
+
+**Symptoms**: Steering only moves after a speed command, or stops before reaching the target angle
 
 **Solutions**:
 
-1. Verify command publishing rate is sufficient (should be >5 Hz)
-2. Check network/agent latency
-3. Verify `/cmd_vel_filtered` topic is being published:
-   ```bash
-   ros2 topic hz /cmd_vel_filtered
-   ```
-4. Check for message queue issues in the agent
+1. Verify the current firmware has stationary steering enabled
+2. Upload the latest firmware build
+3. Confirm `status` updates after `steer <deg>`
+4. Check motor power and steering driver wiring
+5. Check for mechanical binding before increasing command size
 
 ### Getting Help
 
 If issues persist:
 
-1. Check serial monitor output for detailed error messages
+1. Check serial monitor output for detailed status messages
 2. Review LED status codes to identify the failure point
 3. Verify all hardware connections match the pin table
-4. Check the [micro-ROS documentation](https://micro.ros.org/)
-5. Review the [car_odometry README](https://github.com/Michael7371/cda1tenth-bringup/blob/develop/car_odom_node/README.md) for related issues
-
+4. Use low speed and steering commands while the car is lifted or restrained
