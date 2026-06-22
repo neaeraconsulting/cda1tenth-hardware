@@ -178,7 +178,7 @@ void setupBle()
 
   BLECharacteristic *rxCharacteristic = service->createCharacteristic(
       rxCharacteristicUuid,
-      BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+      BLECharacteristic::PROPERTY_WRITE);
   rxCharacteristic->setCallbacks(new JoystickCallbacks());
 
   service->start();
