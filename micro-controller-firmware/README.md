@@ -35,6 +35,8 @@ The firmware uses the following GPIO pins on the ESP32-S3:
 | IO 4                 | EN_PIN          | Motor enable pin                                                   |
 | IO 18                | STEERING_SENSOR | Steering angle sensor (analog input)                               |
 | IO 37                | LED_PIN         | Status LED                                                         |
+| IO 15                | BACK_LIGHTS     | 7-pixel rear RGB light strip data pin                              |
+| IO 16                | FRONT_LIGHTS    | 7-pixel front RGB light strip data pin                             |
 | **Other Pins**       |                 |                                                                    |
 | IO 0                 | BOOT            | Boot mode selection (normally floating, can be pulled low with S2) |
 | EN                   | RESET           | Reset pin (normally pulled up, can be pulled low with S1)          |
@@ -106,6 +108,38 @@ stop
 `zero_steer` stores the steering center in ESP32 nonvolatile storage. The saved value is loaded automatically on boot. `offset <deg>` can be used to set that value manually.
 
 Keep the car lifted or otherwise restrained during early motor tests.
+
+## BLE Vehicle Light Commands
+
+The light strips are controlled through BLE text commands and the drive-control button bitmask:
+
+| Command | Description |
+| ------- | ----------- |
+| `signal left` | Blink the left signal lights |
+| `signal right` | Blink the right signal lights |
+| `signal hazard` | Blink both signal light sides |
+| `signal off` | Turn signal blinking off |
+| `headlights on` | Turn the middle 3 headlights on |
+| `headlights off` | Turn the middle 3 headlights off |
+| `headlight_color <r> <g> <b>` | Set headlight color, each channel `0`-`255` |
+| `signal_color <r> <g> <b>` | Set signal color, each channel `0`-`255` |
+| `light <index> <r> <g> <b>` | Set a base color for one front light pixel |
+
+The front strip uses 7 LEDs. Pixels `5` and `6` are the left signal, pixels `0` and `1` are the right signal, and pixels `2`, `3`, and `4` are headlights. Left/right signals automatically turn off when the measured steering position re-enters the centered zone; hazard lights do not auto-cancel.
+
+The rear strip uses 7 LEDs. Pixels `5` and `6` are the left signal, pixels `0` and `1` are the right signal, pixels `2`, `3`, and `4` are red brake lights, and the two outermost rear pixels turn steady white while reversing. Brake lights stay on while stationary and turn on briefly when commanded speed is reduced.
+
+While waiting for a BLE connection, both strips show a Bluetooth-blue fill/drain animation. When BLE connects, all pixels double-blink blue.
+
+The phone app's drive-control button bitmask also controls the front lights on button press:
+
+| App Button | Bit | Action |
+| ---------- | --- | ------ |
+| `1` | `0x01` | Toggle left signal |
+| `2` | `0x02` | Toggle right signal |
+| `3` | `0x04` | Toggle headlights |
+| `4` | `0x08` | Toggle hazard lights |
+| `5` | `0x10` | Rezero steering |
 
 ## System Architecture
 

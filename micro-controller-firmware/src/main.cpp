@@ -9,10 +9,13 @@
 #include <string.h>
 
 #include "car.h"
+#include "vehicle_lights.h"
 #include "sensor_manager.h"
 
 // Pin definitions
 #define LED_PIN 37
+#define FRONT_LIGHTS_PIN 16
+#define BACK_LIGHTS_PIN 15
 
 // Default parameter values
 #define DEFAULT_ENCODER_OFFSET 187.5f
@@ -31,6 +34,9 @@
 #define BLE_DEBUG_RESPONSES 0
 #define INVERT_JOYSTICK_X 1
 #define INVERT_JOYSTICK_X_WHEN_REVERSING 1
+#define BRAKE_LIGHT_HOLD_MS 650
+#define BRAKE_LIGHT_DECEL_THRESHOLD_MPS 0.07f
+#define SIGNAL_AUTO_CANCEL_STEERING_DEG 6.0f
 
 const char *serviceUuid = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
 const char *rxCharacteristicUuid = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
@@ -42,10 +48,16 @@ const uint8_t packetHeader2 = 0xFB;
 const uint8_t packetFooter = 0xFE;
 const uint8_t axisMax = 100;
 const size_t packetLength = 10;
-const uint8_t zeroSteerButton = 0x01;
+const uint8_t signalLeftButton = 0x01;
+const uint8_t signalRightButton = 0x02;
+const uint8_t headlightsButton = 0x04;
+const uint8_t hazardButton = 0x08;
+const uint8_t zeroSteeringButton = 0x10;
 
 // Global objects
 Car car(CS_RIGHT, CS_LEFT, CS_STEER);
+FrontLights front_lights(FRONT_LIGHTS_PIN);
+RearLights rear_lights(BACK_LIGHTS_PIN);
 SensorManager sensor_manager;
 Preferences preferences;
 BLECharacteristic *txCharacteristic = nullptr;
@@ -57,6 +69,10 @@ float command_speed_rpm = 0.0f;
 uint8_t last_buttons = 0;
 unsigned long last_command_ms = 0;
 bool ble_device_connected = false;
+bool last_ble_device_connected = false;
+float last_motion_light_linear_x = 0.0f;
+unsigned long brake_lights_until_ms = 0;
+bool steering_was_outside_signal_cancel_zone = false;
 
 // Runtime parameters
 float encoder_offset = DEFAULT_ENCODER_OFFSET;
@@ -73,6 +89,11 @@ void sendBleResponse(const char *message);
 void handleJoystickPacket(const std::string &packet);
 void handleBleTextCommand(const std::string &packet);
 int decodeAxisValue(uint8_t sign, uint8_t value);
+uint8_t clampColorValue(float value);
+void setVehicleSignalState(FrontLights::SignalState state);
+void handleButtonToggles(uint8_t buttons);
+void updateRearMotionLights(unsigned long now_ms);
+void updateSignalAutoCancel(float actual_steering_angle);
 void printStatus();
 void setSteeringOffset(float offset, bool save);
 void zeroSteering();
@@ -105,6 +126,8 @@ class JoystickCallbacks : public BLECharacteristicCallbacks
 void setup()
 {
   pinMode(LED_PIN, OUTPUT);
+  front_lights.begin();
+  rear_lights.begin();
 
   SPI.begin();
   SPI.setFrequency(1000000);
@@ -135,13 +158,32 @@ void loop()
   static unsigned long last_status_ms = 0;
 #endif
 
+  unsigned long now = millis();
   updateStatusLed();
 
-  unsigned long now = millis();
+  bool waiting_for_connection = !ble_device_connected;
+  front_lights.setWaitingForConnection(waiting_for_connection);
+  rear_lights.setWaitingForConnection(waiting_for_connection);
+
+  if (ble_device_connected && !last_ble_device_connected)
+  {
+    front_lights.playConnectionBlink();
+    rear_lights.playConnectionBlink();
+  }
+  last_ble_device_connected = ble_device_connected;
+
   if (last_command_ms != 0 && now - last_command_ms > COMMAND_TIMEOUT_MS)
   {
     stopCommand();
   }
+
+  if (!waiting_for_connection)
+  {
+    updateRearMotionLights(now);
+  }
+
+  front_lights.update(now);
+  rear_lights.update(now);
 
   if (now - last_control_ms >= 20)
   {
@@ -268,11 +310,7 @@ void handleJoystickPacket(const std::string &packet)
   command_speed_rpm = (command_linear_x / wheel_radius) * (60.0f / (2.0f * M_PI));
   last_command_ms = millis();
 
-  if ((buttons & zeroSteerButton) != 0 && (last_buttons & zeroSteerButton) == 0)
-  {
-    zeroSteering();
-  }
-
+  handleButtonToggles(buttons);
   last_buttons = buttons;
 
 #if BLE_DEBUG_RESPONSES
@@ -317,12 +355,93 @@ int decodeAxisValue(uint8_t sign, uint8_t value)
   return axis;
 }
 
+void handleButtonToggles(uint8_t buttons)
+{
+  uint8_t pressed = buttons & ~last_buttons;
+
+  if ((pressed & signalLeftButton) != 0)
+  {
+    FrontLights::SignalState next_state = front_lights.getSignalState() == FrontLights::SignalState::Left
+                                              ? FrontLights::SignalState::Off
+                                              : FrontLights::SignalState::Left;
+    setVehicleSignalState(next_state);
+  }
+
+  if ((pressed & signalRightButton) != 0)
+  {
+    FrontLights::SignalState next_state = front_lights.getSignalState() == FrontLights::SignalState::Right
+                                              ? FrontLights::SignalState::Off
+                                              : FrontLights::SignalState::Right;
+    setVehicleSignalState(next_state);
+  }
+
+  if ((pressed & headlightsButton) != 0)
+  {
+    front_lights.setHeadlights(!front_lights.getHeadlights());
+  }
+
+  if ((pressed & hazardButton) != 0)
+  {
+    FrontLights::SignalState next_state = front_lights.getSignalState() == FrontLights::SignalState::Hazard
+                                              ? FrontLights::SignalState::Off
+                                              : FrontLights::SignalState::Hazard;
+    setVehicleSignalState(next_state);
+  }
+
+  if ((pressed & zeroSteeringButton) != 0)
+  {
+    zeroSteering();
+  }
+}
+
+void setVehicleSignalState(FrontLights::SignalState state)
+{
+  front_lights.setSignalState(state);
+  rear_lights.setSignalState(state);
+}
+
+void updateRearMotionLights(unsigned long now_ms)
+{
+  float current_linear_x = command_linear_x;
+  float previous_speed = fabsf(last_motion_light_linear_x);
+  float current_speed = fabsf(current_linear_x);
+  bool slowing_down = current_speed + BRAKE_LIGHT_DECEL_THRESHOLD_MPS < previous_speed;
+  bool changing_direction = current_linear_x * last_motion_light_linear_x < 0.0f && previous_speed > MIN_VELOCITY_THRESHOLD;
+
+  if (slowing_down || changing_direction)
+  {
+    brake_lights_until_ms = now_ms + BRAKE_LIGHT_HOLD_MS;
+  }
+
+  rear_lights.setBrakeLights(current_speed <= MIN_VELOCITY_THRESHOLD || now_ms < brake_lights_until_ms);
+  rear_lights.setReverse(current_linear_x < -MIN_VELOCITY_THRESHOLD);
+  last_motion_light_linear_x = current_linear_x;
+}
+
+void updateSignalAutoCancel(float actual_steering_angle)
+{
+  bool steering_outside_cancel_zone = fabsf(actual_steering_angle) > SIGNAL_AUTO_CANCEL_STEERING_DEG;
+  bool steering_entered_center_zone = steering_was_outside_signal_cancel_zone && !steering_outside_cancel_zone;
+  FrontLights::SignalState signal_state = front_lights.getSignalState();
+
+  if (steering_entered_center_zone &&
+      (signal_state == FrontLights::SignalState::Left || signal_state == FrontLights::SignalState::Right))
+  {
+    setVehicleSignalState(FrontLights::SignalState::Off);
+  }
+
+  steering_was_outside_signal_cancel_zone = steering_outside_cancel_zone;
+}
+
 void handleBleTextCommand(const std::string &packet)
 {
   char line[64];
   char command[16] = {0};
+  char option[16] = {0};
+  int index = 0;
   float first_value = 0.0f;
   float second_value = 0.0f;
+  float third_value = 0.0f;
   size_t length = packet.length();
 
   if (length >= sizeof(line))
@@ -333,14 +452,21 @@ void handleBleTextCommand(const std::string &packet)
   memcpy(line, packet.data(), length);
   line[length] = '\0';
 
-  int parsed = sscanf(line, "%15s %f %f", command, &first_value, &second_value);
+  int parsed = sscanf(line, "%15s", command);
   if (parsed <= 0)
   {
     return;
   }
 
-  if (strcmp(command, "v") == 0 && parsed >= 3)
+  if (strcmp(command, "v") == 0)
   {
+    parsed = sscanf(line, "%15s %f %f", command, &first_value, &second_value);
+    if (parsed < 3)
+    {
+      sendBleResponse("ERR v needs linear angular");
+      return;
+    }
+
     command_linear_x = first_value;
     command_angular_z = second_value;
     command_speed_rpm = (command_linear_x / wheel_radius) * (60.0f / (2.0f * M_PI));
@@ -363,12 +489,128 @@ void handleBleTextCommand(const std::string &packet)
   {
     printStatus();
   }
+  else if (strcmp(command, "signal") == 0)
+  {
+    parsed = sscanf(line, "%15s %15s", command, option);
+    if (parsed < 2)
+    {
+      sendBleResponse("ERR signal left/right/hazard/off");
+      return;
+    }
+
+    if (strcmp(option, "left") == 0)
+    {
+      setVehicleSignalState(FrontLights::SignalState::Left);
+      sendBleResponse("OK signal left");
+    }
+    else if (strcmp(option, "right") == 0)
+    {
+      setVehicleSignalState(FrontLights::SignalState::Right);
+      sendBleResponse("OK signal right");
+    }
+    else if (strcmp(option, "hazard") == 0)
+    {
+      setVehicleSignalState(FrontLights::SignalState::Hazard);
+      sendBleResponse("OK signal hazard");
+    }
+    else if (strcmp(option, "off") == 0)
+    {
+      setVehicleSignalState(FrontLights::SignalState::Off);
+      sendBleResponse("OK signal off");
+    }
+    else
+    {
+      sendBleResponse("ERR signal left/right/hazard/off");
+    }
+  }
+  else if (strcmp(command, "headlights") == 0)
+  {
+    parsed = sscanf(line, "%15s %15s", command, option);
+    if (parsed < 2)
+    {
+      sendBleResponse("ERR headlights on/off");
+      return;
+    }
+
+    if (strcmp(option, "on") == 0)
+    {
+      front_lights.setHeadlights(true);
+      sendBleResponse("OK headlights on");
+    }
+    else if (strcmp(option, "off") == 0)
+    {
+      front_lights.setHeadlights(false);
+      sendBleResponse("OK headlights off");
+    }
+    else
+    {
+      sendBleResponse("ERR headlights on/off");
+    }
+  }
+  else if (strcmp(command, "headlight_color") == 0)
+  {
+    parsed = sscanf(line, "%15s %f %f %f", command, &first_value, &second_value, &third_value);
+    if (parsed < 4)
+    {
+      sendBleResponse("ERR headlight_color r g b");
+      return;
+    }
+
+    front_lights.setHeadlightColor({clampColorValue(first_value), clampColorValue(second_value), clampColorValue(third_value)});
+    sendBleResponse("OK headlight color");
+  }
+  else if (strcmp(command, "signal_color") == 0)
+  {
+    parsed = sscanf(line, "%15s %f %f %f", command, &first_value, &second_value, &third_value);
+    if (parsed < 4)
+    {
+      sendBleResponse("ERR signal_color r g b");
+      return;
+    }
+
+    RgbColor signal_color = {clampColorValue(first_value), clampColorValue(second_value), clampColorValue(third_value)};
+    front_lights.setSignalColor(signal_color);
+    rear_lights.setSignalColor(signal_color);
+    sendBleResponse("OK signal color");
+  }
+  else if (strcmp(command, "light") == 0)
+  {
+    parsed = sscanf(line, "%15s %d %f %f %f", command, &index, &first_value, &second_value, &third_value);
+    if (parsed < 5)
+    {
+      sendBleResponse("ERR light index r g b");
+      return;
+    }
+
+    if (index < 0 || index >= FrontLights::LightCount)
+    {
+      sendBleResponse("ERR light index 0-6");
+      return;
+    }
+
+    front_lights.setPixel(static_cast<uint8_t>(index), {clampColorValue(first_value), clampColorValue(second_value), clampColorValue(third_value)});
+    sendBleResponse("OK light set");
+  }
   else
   {
     char message[96];
     snprintf(message, sizeof(message), "ERR unknown/len %u", static_cast<unsigned int>(packet.length()));
     sendBleResponse(message);
   }
+}
+
+uint8_t clampColorValue(float value)
+{
+  if (value < 0.0f)
+  {
+    return 0;
+  }
+  if (value > 255.0f)
+  {
+    return 255;
+  }
+
+  return static_cast<uint8_t>(value);
 }
 
 void printStatus()
@@ -444,6 +686,7 @@ void moveBase()
   car.setSteeringAngle(steering_angle);
   car.setSpeed(speed_rpm, car.wheelbase, car.trackWidth);
   car.updateControlLoops();
+  updateSignalAutoCancel(car.getActualSteeringAngle());
 }
 
 void flashLED(int n_times)

@@ -31,12 +31,12 @@ void SteeringMotor::begin()
   driver.pwm_grad(1);
   driver.pwm_ofs(247);
 
-  driver.a1(1000);
-  driver.v1(1000);
-  driver.AMAX(2000);
-  driver.DMAX(2000);
-  driver.VMAX(3000);
-  driver.d1(1000);
+  driver.a1(2000);
+  driver.v1(2000);
+  driver.AMAX(4000);
+  driver.DMAX(4000);
+  driver.VMAX(6000);
+  driver.d1(2000);
   driver.VSTOP(10);
 
   lastCorrectionMicros = micros();
