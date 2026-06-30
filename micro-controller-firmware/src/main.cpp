@@ -11,6 +11,7 @@
 #include "car.h"
 #include "vehicle_lights.h"
 #include "sensor_manager.h"
+#include "mqtt_traffic_gate.h"
 
 // Pin definitions
 #define LED_PIN 37
@@ -61,6 +62,7 @@ RearLights rear_lights(BACK_LIGHTS_PIN);
 SensorManager sensor_manager;
 Preferences preferences;
 BLECharacteristic *txCharacteristic = nullptr;
+MqttTrafficGate traffic_gate;
 
 // Command state
 float command_linear_x = 0.0f;
@@ -92,7 +94,7 @@ int decodeAxisValue(uint8_t sign, uint8_t value);
 uint8_t clampColorValue(float value);
 void setVehicleSignalState(FrontLights::SignalState state);
 void handleButtonToggles(uint8_t buttons);
-void updateRearMotionLights(unsigned long now_ms);
+void updateRearMotionLights(unsigned long now_ms, float speed_multiplier);
 void updateSignalAutoCancel(float actual_steering_angle);
 void printStatus();
 void setSteeringOffset(float offset, bool save);
@@ -125,6 +127,9 @@ class JoystickCallbacks : public BLECharacteristicCallbacks
 
 void setup()
 {
+  Serial.begin(115200);
+  Serial.println("CDA1Tenth boot");
+
   pinMode(LED_PIN, OUTPUT);
   front_lights.begin();
   rear_lights.begin();
@@ -139,6 +144,7 @@ void setup()
 
   car.begin();
   setupBle();
+  traffic_gate.begin();
 
   delay(2000);
   flashLED(2);
@@ -160,6 +166,7 @@ void loop()
 
   unsigned long now = millis();
   updateStatusLed();
+  traffic_gate.loop();
 
   bool waiting_for_connection = !ble_device_connected;
   front_lights.setWaitingForConnection(waiting_for_connection);
@@ -179,7 +186,7 @@ void loop()
 
   if (!waiting_for_connection)
   {
-    updateRearMotionLights(now);
+    updateRearMotionLights(now, traffic_gate.speedMultiplier());
   }
 
   front_lights.update(now);
@@ -400,9 +407,9 @@ void setVehicleSignalState(FrontLights::SignalState state)
   rear_lights.setSignalState(state);
 }
 
-void updateRearMotionLights(unsigned long now_ms)
+void updateRearMotionLights(unsigned long now_ms, float speed_multiplier)
 {
-  float current_linear_x = command_linear_x;
+  float current_linear_x = command_linear_x * speed_multiplier;
   float previous_speed = fabsf(last_motion_light_linear_x);
   float current_speed = fabsf(current_linear_x);
   bool slowing_down = current_speed + BRAKE_LIGHT_DECEL_THRESHOLD_MPS < previous_speed;
@@ -591,6 +598,36 @@ void handleBleTextCommand(const std::string &packet)
     front_lights.setPixel(static_cast<uint8_t>(index), {clampColorValue(first_value), clampColorValue(second_value), clampColorValue(third_value)});
     sendBleResponse("OK light set");
   }
+  else if (strcmp(command, "traffic_group") == 0)
+  {
+    parsed = sscanf(line, "%15s %d", command, &index);
+    if (parsed < 2 || index < 1)
+    {
+      sendBleResponse("ERR traffic_group n");
+      return;
+    }
+
+    traffic_gate.setSignalGroup(index);
+
+    char message[64];
+    snprintf(message, sizeof(message), "OK traffic group %d", traffic_gate.signalGroup());
+    sendBleResponse(message);
+  }
+  else if (strcmp(command, "traffic_status") == 0)
+  {
+    char message[96];
+    snprintf(
+        message,
+        sizeof(message),
+        "T en=%d mqtt=%d group=%d state=%s mul=%.1f t=%d",
+        traffic_gate.isEnabled() ? 1 : 0,
+        traffic_gate.isConnected() ? 1 : 0,
+        traffic_gate.signalGroup(),
+        traffic_gate.movementStateName(),
+        traffic_gate.speedMultiplier(),
+        traffic_gate.timeRemaining());
+    sendBleResponse(message);
+  }
   else
   {
     char message[96];
@@ -663,6 +700,7 @@ void moveBase()
 {
   float linear_x = command_linear_x;
   float angular_z = command_angular_z;
+  float traffic_speed_multiplier = traffic_gate.speedMultiplier();
   float steering_angle = 0.0f;
 
   if (fabs(linear_x) > MIN_VELOCITY_THRESHOLD && fabs(angular_z) > MIN_VELOCITY_THRESHOLD)
@@ -676,7 +714,7 @@ void moveBase()
   if (steering_angle < -max_steering_angle)
     steering_angle = -max_steering_angle;
 
-  float speed_rpm = command_speed_rpm;
+  float speed_rpm = command_speed_rpm * traffic_speed_multiplier;
 
   if (speed_rpm > max_rpm)
     speed_rpm = max_rpm;

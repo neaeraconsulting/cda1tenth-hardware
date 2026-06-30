@@ -1,0 +1,72 @@
+#ifndef MQTT_DEMO_CONFIG_H
+#define MQTT_DEMO_CONFIG_H
+
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+
+#ifndef MQTT_WIFI_SSID
+#define MQTT_WIFI_SSID ""
+#endif
+
+#ifndef MQTT_WIFI_PASSWORD
+#define MQTT_WIFI_PASSWORD ""
+#endif
+
+#ifndef MQTT_BROKER_HOST
+#define MQTT_BROKER_HOST "172.250.250.111"
+#endif
+
+#ifndef MQTT_BROKER_PORT
+#define MQTT_BROKER_PORT 1883
+#endif
+
+#ifndef MQTT_SPAT_TOPIC
+#define MQTT_SPAT_TOPIC "esp32/1/spat"
+#endif
+
+#ifndef MQTT_MAP_TOPIC
+#define MQTT_MAP_TOPIC "esp32/1/map"
+#endif
+
+#ifndef MQTT_VEHICLE_SIGNAL_GROUP
+#define MQTT_VEHICLE_SIGNAL_GROUP 2
+#endif
+
+#ifndef MQTT_VEHICLE_APPROACH
+#define MQTT_VEHICLE_APPROACH "east"
+#endif
+
+#ifndef MQTT_VEHICLE_LANE_ID
+#define MQTT_VEHICLE_LANE_ID 0
+#endif
+
+#ifndef MQTT_VEHICLE_INGRESS_APPROACH
+#define MQTT_VEHICLE_INGRESS_APPROACH 2
+#endif
+
+#ifndef MQTT_SPAT_STALE_MS
+#define MQTT_SPAT_STALE_MS 2500
+#endif
+
+#ifndef MQTT_RECONNECT_INTERVAL_MS
+#define MQTT_RECONNECT_INTERVAL_MS 2000
+#endif
+
+#ifndef MQTT_WIFI_RECONNECT_INTERVAL_MS
+#define MQTT_WIFI_RECONNECT_INTERVAL_MS 5000
+#endif
+
+#ifndef MQTT_START_DELAY_MS
+#define MQTT_START_DELAY_MS 5000
+#endif
+
+#ifndef MQTT_SERIAL_DEBUG
+#define MQTT_SERIAL_DEBUG 1
+#endif
+
+#ifndef MQTT_MESSAGE_BUFFER_BYTES
+#define MQTT_MESSAGE_BUFFER_BYTES 4096
+#endif
+
+#endif // MQTT_DEMO_CONFIG_H

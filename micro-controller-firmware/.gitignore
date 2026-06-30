@@ -38,6 +38,9 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Local WiFi/MQTT credentials
+include/secrets.h
+
 # micro-ROS specific (if any generated files)
 microros_ws/
 

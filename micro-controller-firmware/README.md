@@ -141,6 +141,46 @@ The phone app's drive-control button bitmask also controls the front lights on b
 | `4` | `0x08` | Toggle hazard lights |
 | `5` | `0x10` | Rezero steering |
 
+## MQTT Traffic Light Demo
+
+The firmware can participate in the MQTT traffic light demo using broker `172.250.250.111:1883`.
+
+Place the demo WiFi credentials in `include/secrets.h`; `include/secrets.example.h` has the expected shape:
+
+```cpp
+#define MQTT_WIFI_SSID "your-wifi-ssid"
+#define MQTT_WIFI_PASSWORD "your-wifi-password"
+```
+
+`include/secrets.h` is ignored by git. With credentials present, the vehicle firmware subscribes to:
+
+| Topic | Purpose |
+| ----- | ------- |
+| `esp32/1/spat` | J2735-style SPaT signal state |
+| `esp32/1/map` | Approach/lane to signal group mapping |
+
+Default vehicle approach is east / ingress approach `2` / signal group `2`. The retained MAP can switch this automatically; with the current single-light bench MAP, the vehicle will switch to signal group `1`. Override at build time with `MQTT_VEHICLE_APPROACH`, `MQTT_VEHICLE_INGRESS_APPROACH`, or `MQTT_VEHICLE_SIGNAL_GROUP`, or send the BLE command:
+
+```text
+traffic_group 3
+```
+
+Vehicle behavior from SPaT:
+
+| SPaT event state | Vehicle behavior |
+| ---------------- | ---------------- |
+| `protected-Movement-Allowed` | Drive normally |
+| `protected-clearance` | Drive at half speed |
+| `stop-And-Remain` | Mandatory stop |
+| Missing or stale SPaT | Mandatory stop |
+
+Useful BLE demo commands:
+
+| Command | Description |
+| ------- | ----------- |
+| `traffic_status` | Show MQTT connection, group, state, multiplier, and phase time |
+| `traffic_group <n>` | Manually select the vehicle signal group |
+
 ## System Architecture
 
 The firmware implements a single-threaded USB bring-up control loop:
