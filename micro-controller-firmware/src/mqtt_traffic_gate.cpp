@@ -96,6 +96,7 @@ TrafficMovementState parseEventState(const char *state)
   }
 
   if (strcasecmp(state, "protected-Movement-Allowed") == 0 ||
+      strcasecmp(state, "permissive-Movement-Allowed") == 0 ||
       strcasecmp(state, "movement-allowed") == 0 ||
       strcasecmp(state, "green") == 0)
   {
@@ -103,6 +104,7 @@ TrafficMovementState parseEventState(const char *state)
   }
 
   if (strcasecmp(state, "protected-clearance") == 0 ||
+      strcasecmp(state, "permissive-clearance") == 0 ||
       strcasecmp(state, "clearance") == 0 ||
       strcasecmp(state, "yellow") == 0)
   {
@@ -110,6 +112,7 @@ TrafficMovementState parseEventState(const char *state)
   }
 
   if (strcasecmp(state, "stop-And-Remain") == 0 ||
+      strcasecmp(state, "stop-Then-Proceed") == 0 ||
       strcasecmp(state, "stop") == 0 ||
       strcasecmp(state, "red") == 0 ||
       strcasecmp(state, "off") == 0)
@@ -420,16 +423,18 @@ void MqttTrafficGate::begin()
   mqtt_client_.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
   mqtt_client_.setCallback(mqttCallback);
   mqtt_client_.setBufferSize(MQTT_MESSAGE_BUFFER_BYTES);
+  mqtt_client_.setSocketTimeout(MQTT_SOCKET_TIMEOUT_SECONDS);
 
 #if MQTT_SERIAL_DEBUG
   Serial.printf(
-      "MQTT config broker=%s:%d spat=%s map=%s group=%d stale_ms=%lu\n",
+      "MQTT config broker=%s:%d spat=%s map=%s group=%d stale_ms=%lu fail_open=%d\n",
       MQTT_BROKER_HOST,
       MQTT_BROKER_PORT,
       MQTT_SPAT_TOPIC,
       MQTT_MAP_TOPIC,
       signal_group_,
-      static_cast<unsigned long>(MQTT_SPAT_STALE_MS));
+      static_cast<unsigned long>(MQTT_SPAT_STALE_MS),
+      MQTT_FAIL_OPEN_ON_STALE);
 #endif
 }
 
@@ -488,7 +493,17 @@ float MqttTrafficGate::speedMultiplier() const
 
   if (!hasFreshSpat())
   {
+#if MQTT_FAIL_OPEN_ON_STALE
+    if (movement_state_ == TrafficMovementState::Stop ||
+        movement_state_ == TrafficMovementState::Clearance)
+    {
+      return 0.0f;
+    }
+
+    return 1.0f;
+#else
     return 0.0f;
+#endif
   }
 
   if (movement_state_ == TrafficMovementState::Allowed)
@@ -498,7 +513,13 @@ float MqttTrafficGate::speedMultiplier() const
 
   if (movement_state_ == TrafficMovementState::Clearance)
   {
-    return 0.5f;
+    unsigned long elapsed_ms = millis() - movement_state_started_ms_;
+    if (elapsed_ms >= MQTT_CLEARANCE_RAMP_MS)
+    {
+      return 0.0f;
+    }
+
+    return 1.0f - (static_cast<float>(elapsed_ms) / static_cast<float>(MQTT_CLEARANCE_RAMP_MS));
   }
 
   return 0.0f;
@@ -508,7 +529,19 @@ const char *MqttTrafficGate::movementStateName() const
 {
   if (enabled_ && !hasFreshSpat())
   {
+#if MQTT_FAIL_OPEN_ON_STALE
+    if (movement_state_ == TrafficMovementState::Stop)
+    {
+      return "stale-red";
+    }
+    if (movement_state_ == TrafficMovementState::Clearance)
+    {
+      return "stale-yellow";
+    }
+    return "stale-open";
+#else
     return "stale-red";
+#endif
   }
 
   return stateName(movement_state_);
@@ -533,6 +566,7 @@ void MqttTrafficGate::setSignalGroup(int signal_group)
 
   signal_group_ = signal_group;
   last_spat_ms_ = 0;
+  movement_state_started_ms_ = 0;
   movement_state_ = TrafficMovementState::Unknown;
   time_remaining_ = -1;
   movement_logged_ = false;
@@ -582,7 +616,7 @@ void MqttTrafficGate::ensureMqtt(unsigned long now_ms)
     return;
   }
 
-  if (now_ms - last_mqtt_attempt_ms_ < MQTT_RECONNECT_INTERVAL_MS)
+  if (last_mqtt_attempt_ms_ != 0 && now_ms - last_mqtt_attempt_ms_ < MQTT_RECONNECT_INTERVAL_MS)
   {
     return;
   }
@@ -643,7 +677,11 @@ void MqttTrafficGate::logStaleState()
   if (!hasFreshSpat() && !stale_logged_)
   {
 #if MQTT_SERIAL_DEBUG
+#if MQTT_FAIL_OPEN_ON_STALE
+    Serial.printf("Traffic SPaT stale for group=%d, holding last safe behavior\n", signal_group_);
+#else
     Serial.printf("Traffic SPaT stale for group=%d, treating as red\n", signal_group_);
+#endif
 #endif
     stale_logged_ = true;
   }
@@ -700,9 +738,14 @@ void MqttTrafficGate::handleSpat(const char *payload)
   if (parseSpat(document.as<JsonVariantConst>(), signal_group_, parsed_state, parsed_time_remaining))
   {
     bool state_changed = !movement_logged_ || parsed_state != logged_movement_state_;
+    unsigned long now_ms = millis();
+    if (last_spat_ms_ == 0 || parsed_state != movement_state_)
+    {
+      movement_state_started_ms_ = now_ms;
+    }
     movement_state_ = parsed_state;
     time_remaining_ = parsed_time_remaining;
-    last_spat_ms_ = millis();
+    last_spat_ms_ = now_ms;
     stale_logged_ = false;
     if (state_changed)
     {

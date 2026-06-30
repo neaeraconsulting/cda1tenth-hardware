@@ -30,7 +30,7 @@
 #define MAX_RPM 300.0f
 #define MAX_LINEAR_SPEED_MPS 1.0f
 #define MAX_ANGULAR_SPEED_RADPS 3.0f
-#define COMMAND_TIMEOUT_MS 2000
+#define COMMAND_TIMEOUT_MS 4000
 #define CONNECTED_LED_BLINK_MS 250
 #define BLE_DEBUG_RESPONSES 0
 #define INVERT_JOYSTICK_X 1
@@ -164,13 +164,13 @@ void setup()
 void loop()
 {
   static unsigned long last_control_ms = 0;
+  static unsigned long last_mqtt_loop_ms = 0;
 #if BLE_DEBUG_RESPONSES
   static unsigned long last_status_ms = 0;
 #endif
 
   unsigned long now = millis();
   updateStatusLed();
-  traffic_gate.loop();
 
   bool waiting_for_connection = !ble_device_connected;
   front_lights.setWaitingForConnection(waiting_for_connection);
@@ -204,6 +204,12 @@ void loop()
   }
 
   car.updateControlLoops();
+
+  if (now - last_mqtt_loop_ms >= MQTT_LOOP_INTERVAL_MS)
+  {
+    traffic_gate.loop();
+    last_mqtt_loop_ms = now;
+  }
 
 #if BLE_DEBUG_RESPONSES
   if (now - last_status_ms >= 1000)

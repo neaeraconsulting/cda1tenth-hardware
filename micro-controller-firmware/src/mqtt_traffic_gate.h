@@ -50,6 +50,7 @@ private:
   unsigned long last_mqtt_attempt_ms_ = 0;
   unsigned long boot_ms_ = 0;
   unsigned long last_spat_ms_ = 0;
+  unsigned long movement_state_started_ms_ = 0;
   TrafficMovementState movement_state_ = TrafficMovementState::Unknown;
   TrafficMovementState logged_movement_state_ = TrafficMovementState::Unknown;
   int signal_group_ = MQTT_VEHICLE_SIGNAL_GROUP;
