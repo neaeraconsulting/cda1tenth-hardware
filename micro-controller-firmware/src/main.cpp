@@ -74,7 +74,8 @@ bool ble_device_connected = false;
 bool last_ble_device_connected = false;
 float last_motion_light_linear_x = 0.0f;
 unsigned long brake_lights_until_ms = 0;
-bool steering_was_outside_signal_cancel_zone = false;
+FrontLights::SignalState signal_auto_cancel_state = FrontLights::SignalState::Off;
+bool steering_was_outside_active_signal_cancel_zone = false;
 
 // Runtime parameters
 float encoder_offset = DEFAULT_ENCODER_OFFSET;
@@ -96,6 +97,7 @@ void setVehicleSignalState(FrontLights::SignalState state);
 void handleButtonToggles(uint8_t buttons);
 void updateRearMotionLights(unsigned long now_ms, float speed_multiplier);
 void updateSignalAutoCancel(float actual_steering_angle);
+bool isSteeringOutsideActiveSignalCancelZone(float actual_steering_angle, FrontLights::SignalState signal_state);
 void printStatus();
 void setSteeringOffset(float offset, bool save);
 void zeroSteering();
@@ -429,17 +431,53 @@ void updateRearMotionLights(unsigned long now_ms, float speed_multiplier)
 
 void updateSignalAutoCancel(float actual_steering_angle)
 {
-  bool steering_outside_cancel_zone = fabsf(actual_steering_angle) > SIGNAL_AUTO_CANCEL_STEERING_DEG;
-  bool steering_entered_center_zone = steering_was_outside_signal_cancel_zone && !steering_outside_cancel_zone;
   FrontLights::SignalState signal_state = front_lights.getSignalState();
+  bool signal_can_auto_cancel = signal_state == FrontLights::SignalState::Left ||
+                                signal_state == FrontLights::SignalState::Right;
 
-  if (steering_entered_center_zone &&
-      (signal_state == FrontLights::SignalState::Left || signal_state == FrontLights::SignalState::Right))
+  if (!signal_can_auto_cancel)
   {
-    setVehicleSignalState(FrontLights::SignalState::Off);
+    signal_auto_cancel_state = signal_state;
+    steering_was_outside_active_signal_cancel_zone = false;
+    return;
   }
 
-  steering_was_outside_signal_cancel_zone = steering_outside_cancel_zone;
+  bool steering_outside_cancel_zone =
+      isSteeringOutsideActiveSignalCancelZone(actual_steering_angle, signal_state);
+
+  if (signal_state != signal_auto_cancel_state)
+  {
+    signal_auto_cancel_state = signal_state;
+    steering_was_outside_active_signal_cancel_zone = steering_outside_cancel_zone;
+    return;
+  }
+
+  bool steering_entered_center_zone =
+      steering_was_outside_active_signal_cancel_zone && !steering_outside_cancel_zone;
+
+  if (steering_entered_center_zone)
+  {
+    setVehicleSignalState(FrontLights::SignalState::Off);
+    signal_auto_cancel_state = FrontLights::SignalState::Off;
+  }
+
+  steering_was_outside_active_signal_cancel_zone = steering_outside_cancel_zone;
+}
+
+bool isSteeringOutsideActiveSignalCancelZone(float actual_steering_angle, FrontLights::SignalState signal_state)
+{
+  // Measured steering angle is inverted relative to the commanded turn angle.
+  if (signal_state == FrontLights::SignalState::Left)
+  {
+    return actual_steering_angle < -SIGNAL_AUTO_CANCEL_STEERING_DEG;
+  }
+
+  if (signal_state == FrontLights::SignalState::Right)
+  {
+    return actual_steering_angle > SIGNAL_AUTO_CANCEL_STEERING_DEG;
+  }
+
+  return false;
 }
 
 void handleBleTextCommand(const std::string &packet)

@@ -125,7 +125,7 @@ The light strips are controlled through BLE text commands and the drive-control 
 | `signal_color <r> <g> <b>` | Set signal color, each channel `0`-`255` |
 | `light <index> <r> <g> <b>` | Set a base color for one front light pixel |
 
-The front strip uses 7 LEDs. Pixels `5` and `6` are the left signal, pixels `0` and `1` are the right signal, and pixels `2`, `3`, and `4` are headlights. Left/right signals automatically turn off when the measured steering position re-enters the centered zone; hazard lights do not auto-cancel.
+The front strip uses 7 LEDs. Pixels `5` and `6` are the left signal, pixels `0` and `1` are the right signal, and pixels `2`, `3`, and `4` are headlights. Left/right signals automatically turn off when the measured steering position re-enters the centered zone from the active signal side; hazard lights do not auto-cancel.
 
 The rear strip uses 7 LEDs. Pixels `5` and `6` are the left signal, pixels `0` and `1` are the right signal, pixels `2`, `3`, and `4` are red brake lights, and the two outermost rear pixels turn steady white while reversing. Brake lights stay on while stationary and turn on briefly when commanded speed is reduced.
 
