@@ -107,6 +107,7 @@ class ServerCallbacks : public BLEServerCallbacks
   {
     (void)server;
     ble_device_connected = true;
+    Serial.println("BLE connected");
   }
 
   void onDisconnect(BLEServer *server) override
@@ -114,6 +115,7 @@ class ServerCallbacks : public BLEServerCallbacks
     ble_device_connected = false;
     stopCommand();
     server->startAdvertising();
+    Serial.println("BLE disconnected, advertising restarted");
   }
 };
 

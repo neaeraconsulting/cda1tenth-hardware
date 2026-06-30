@@ -38,19 +38,28 @@ private:
   PubSubClient mqtt_client_;
   bool enabled_ = false;
   bool wifi_started_ = false;
+  bool wifi_configured_ = false;
   bool start_logged_ = false;
   bool subscriptions_logged_ = false;
+  bool last_wifi_connected_ = false;
+  bool last_mqtt_connected_ = false;
+  bool map_logged_ = false;
+  bool movement_logged_ = false;
+  bool stale_logged_ = false;
   unsigned long last_wifi_attempt_ms_ = 0;
   unsigned long last_mqtt_attempt_ms_ = 0;
   unsigned long boot_ms_ = 0;
   unsigned long last_spat_ms_ = 0;
   TrafficMovementState movement_state_ = TrafficMovementState::Unknown;
+  TrafficMovementState logged_movement_state_ = TrafficMovementState::Unknown;
   int signal_group_ = MQTT_VEHICLE_SIGNAL_GROUP;
   int time_remaining_ = -1;
   char client_id_[40] = {0};
 
   void ensureWifi(unsigned long now_ms);
   void ensureMqtt(unsigned long now_ms);
+  void logConnectionChanges();
+  void logStaleState();
   void subscribeTopics();
   void handleSpat(const char *payload);
   void handleMap(const char *payload);

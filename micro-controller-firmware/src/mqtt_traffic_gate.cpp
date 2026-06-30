@@ -415,9 +415,6 @@ void MqttTrafficGate::begin()
 
   active_gate = this;
   mqttLog("MQTT enabled: delayed WiFi start pending");
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
-  WiFi.persistent(false);
 
   snprintf(client_id_, sizeof(client_id_), "cda1-vehicle-%06X", static_cast<unsigned int>(ESP.getEfuseMac() & 0xFFFFFF));
   mqtt_client_.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
@@ -451,6 +448,9 @@ void MqttTrafficGate::loop()
   {
     mqtt_client_.loop();
   }
+
+  logConnectionChanges();
+  logStaleState();
 }
 
 bool MqttTrafficGate::isEnabled() const
@@ -524,6 +524,8 @@ void MqttTrafficGate::setSignalGroup(int signal_group)
   last_spat_ms_ = 0;
   movement_state_ = TrafficMovementState::Unknown;
   time_remaining_ = -1;
+  movement_logged_ = false;
+  stale_logged_ = false;
 }
 
 void MqttTrafficGate::ensureWifi(unsigned long now_ms)
@@ -541,6 +543,16 @@ void MqttTrafficGate::ensureWifi(unsigned long now_ms)
   bool first_attempt = !wifi_started_;
   wifi_started_ = true;
   last_wifi_attempt_ms_ = now_ms;
+
+  if (!wifi_configured_)
+  {
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
+    WiFi.setSleep(true);
+    wifi_configured_ = true;
+    mqttLog("MQTT WiFi configured with modem sleep");
+  }
+
   if (first_attempt)
   {
     mqttLog("MQTT WiFi begin");
@@ -548,7 +560,6 @@ void MqttTrafficGate::ensureWifi(unsigned long now_ms)
   }
   else
   {
-    mqttLog("MQTT WiFi reconnect");
     WiFi.reconnect();
   }
 }
@@ -566,11 +577,58 @@ void MqttTrafficGate::ensureMqtt(unsigned long now_ms)
   }
 
   last_mqtt_attempt_ms_ = now_ms;
-  mqttLog("MQTT connecting broker");
   if (mqtt_client_.connect(client_id_))
   {
-    mqttLog("MQTT broker connected");
     subscribeTopics();
+  }
+}
+
+void MqttTrafficGate::logConnectionChanges()
+{
+  bool wifi_connected = WiFi.status() == WL_CONNECTED;
+  if (wifi_connected != last_wifi_connected_)
+  {
+    last_wifi_connected_ = wifi_connected;
+    if (wifi_connected)
+    {
+#if MQTT_SERIAL_DEBUG
+      Serial.printf("MQTT WiFi connected ip=%s\n", WiFi.localIP().toString().c_str());
+#endif
+    }
+    else
+    {
+      mqttLog("MQTT WiFi disconnected");
+    }
+  }
+
+  bool mqtt_connected = mqtt_client_.connected();
+  if (mqtt_connected != last_mqtt_connected_)
+  {
+    last_mqtt_connected_ = mqtt_connected;
+    if (mqtt_connected)
+    {
+      mqttLog("MQTT broker connected, subscribed to SPaT/MAP");
+    }
+    else
+    {
+      mqttLog("MQTT broker disconnected");
+    }
+  }
+}
+
+void MqttTrafficGate::logStaleState()
+{
+  if (last_spat_ms_ == 0)
+  {
+    return;
+  }
+
+  if (!hasFreshSpat() && !stale_logged_)
+  {
+#if MQTT_SERIAL_DEBUG
+    Serial.printf("Traffic SPaT stale for group=%d, treating as red\n", signal_group_);
+#endif
+    stale_logged_ = true;
   }
 }
 
@@ -578,11 +636,7 @@ void MqttTrafficGate::subscribeTopics()
 {
   mqtt_client_.subscribe(MQTT_SPAT_TOPIC);
   mqtt_client_.subscribe(MQTT_MAP_TOPIC);
-  if (!subscriptions_logged_)
-  {
-    mqttLog("MQTT subscribed to SPaT/MAP");
-    subscriptions_logged_ = true;
-  }
+  subscriptions_logged_ = true;
 }
 
 void MqttTrafficGate::handleMessage(char *topic, const uint8_t *payload, unsigned int length)
@@ -619,12 +673,19 @@ void MqttTrafficGate::handleSpat(const char *payload)
   int parsed_time_remaining = -1;
   if (parseSpat(document.as<JsonVariantConst>(), signal_group_, parsed_state, parsed_time_remaining))
   {
+    bool state_changed = !movement_logged_ || parsed_state != logged_movement_state_;
     movement_state_ = parsed_state;
     time_remaining_ = parsed_time_remaining;
     last_spat_ms_ = millis();
+    stale_logged_ = false;
+    if (state_changed)
+    {
+      movement_logged_ = true;
+      logged_movement_state_ = parsed_state;
 #if MQTT_SERIAL_DEBUG
-    Serial.printf("MQTT SPaT group=%d state=%s t=%d mul=%.1f\n", signal_group_, movementStateName(), time_remaining_, speedMultiplier());
+      Serial.printf("Traffic light group=%d color=%s mul=%.1f t=%d\n", signal_group_, movementStateName(), speedMultiplier(), time_remaining_);
 #endif
+    }
   }
 }
 
@@ -639,9 +700,14 @@ void MqttTrafficGate::handleMap(const char *payload)
   int mapped_signal_group = 0;
   if (parseMap(document.as<JsonVariantConst>(), mapped_signal_group))
   {
+    int previous_signal_group = signal_group_;
     setSignalGroup(mapped_signal_group);
+    if (!map_logged_ || mapped_signal_group != previous_signal_group)
+    {
+      map_logged_ = true;
 #if MQTT_SERIAL_DEBUG
-    Serial.printf("MQTT MAP signalGroup=%d\n", signal_group_);
+      Serial.printf("MQTT MAP signalGroup=%d\n", signal_group_);
 #endif
+    }
   }
 }
