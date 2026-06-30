@@ -143,7 +143,7 @@ The phone app's drive-control button bitmask also controls the front lights on b
 
 ## MQTT Traffic Light Demo
 
-The firmware can participate in the MQTT traffic light demo using broker `172.250.250.111:1883`.
+The firmware can participate in the MQTT traffic light demo using broker `10.0.0.92:1883`. This is the Windows Wi-Fi adapter IPv4 address from `ipconfig`; do not use the WSL `vEthernet` address for an ESP32 on the physical Wi-Fi network.
 
 Place the demo WiFi credentials in `include/secrets.h`; `include/secrets.example.h` has the expected shape:
 
@@ -159,7 +159,7 @@ Place the demo WiFi credentials in `include/secrets.h`; `include/secrets.example
 | `esp32/1/spat` | J2735-style SPaT signal state |
 | `esp32/1/map` | Approach/lane to signal group mapping |
 
-Default vehicle approach is east / ingress approach `2` / signal group `2`. The retained MAP can switch this automatically; with the current single-light bench MAP, the vehicle will switch to signal group `1`. Override at build time with `MQTT_VEHICLE_APPROACH`, `MQTT_VEHICLE_INGRESS_APPROACH`, or `MQTT_VEHICLE_SIGNAL_GROUP`, or send the BLE command:
+Default vehicle signal group is `1`, matching the single-signal SPaT messages published to `esp32/1/spat`. The retained MAP can still switch this automatically if a MAP message is available. Override at build time with `MQTT_VEHICLE_APPROACH`, `MQTT_VEHICLE_INGRESS_APPROACH`, or `MQTT_VEHICLE_SIGNAL_GROUP`, or send the BLE command:
 
 ```text
 traffic_group 3
@@ -173,6 +173,8 @@ Vehicle behavior from SPaT:
 | `protected-clearance` | Drive at half speed |
 | `stop-And-Remain` | Mandatory stop |
 | Missing or stale SPaT | Mandatory stop |
+
+The demo SPaT publisher sends only when the light changes, so the default stale timeout is `120000` ms instead of a short periodic-message timeout.
 
 Useful BLE demo commands:
 

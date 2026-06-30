@@ -420,6 +420,17 @@ void MqttTrafficGate::begin()
   mqtt_client_.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
   mqtt_client_.setCallback(mqttCallback);
   mqtt_client_.setBufferSize(MQTT_MESSAGE_BUFFER_BYTES);
+
+#if MQTT_SERIAL_DEBUG
+  Serial.printf(
+      "MQTT config broker=%s:%d spat=%s map=%s group=%d stale_ms=%lu\n",
+      MQTT_BROKER_HOST,
+      MQTT_BROKER_PORT,
+      MQTT_SPAT_TOPIC,
+      MQTT_MAP_TOPIC,
+      signal_group_,
+      static_cast<unsigned long>(MQTT_SPAT_STALE_MS));
+#endif
 }
 
 void MqttTrafficGate::loop()
@@ -581,6 +592,12 @@ void MqttTrafficGate::ensureMqtt(unsigned long now_ms)
   {
     subscribeTopics();
   }
+#if MQTT_SERIAL_DEBUG
+  else
+  {
+    Serial.printf("MQTT broker connect failed host=%s:%d rc=%d\n", MQTT_BROKER_HOST, MQTT_BROKER_PORT, mqtt_client_.state());
+  }
+#endif
 }
 
 void MqttTrafficGate::logConnectionChanges()
@@ -634,9 +651,18 @@ void MqttTrafficGate::logStaleState()
 
 void MqttTrafficGate::subscribeTopics()
 {
-  mqtt_client_.subscribe(MQTT_SPAT_TOPIC);
-  mqtt_client_.subscribe(MQTT_MAP_TOPIC);
+  bool spat_subscribed = mqtt_client_.subscribe(MQTT_SPAT_TOPIC);
+  bool map_subscribed = mqtt_client_.subscribe(MQTT_MAP_TOPIC);
   subscriptions_logged_ = true;
+
+#if MQTT_SERIAL_DEBUG
+  Serial.printf(
+      "MQTT subscriptions spat=%d topic=%s map=%d topic=%s\n",
+      spat_subscribed ? 1 : 0,
+      MQTT_SPAT_TOPIC,
+      map_subscribed ? 1 : 0,
+      MQTT_MAP_TOPIC);
+#endif
 }
 
 void MqttTrafficGate::handleMessage(char *topic, const uint8_t *payload, unsigned int length)

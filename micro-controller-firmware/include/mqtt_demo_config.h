@@ -14,7 +14,7 @@
 #endif
 
 #ifndef MQTT_BROKER_HOST
-#define MQTT_BROKER_HOST "172.250.250.111"
+#define MQTT_BROKER_HOST "10.0.0.92"
 #endif
 
 #ifndef MQTT_BROKER_PORT
@@ -30,7 +30,7 @@
 #endif
 
 #ifndef MQTT_VEHICLE_SIGNAL_GROUP
-#define MQTT_VEHICLE_SIGNAL_GROUP 2
+#define MQTT_VEHICLE_SIGNAL_GROUP 1
 #endif
 
 #ifndef MQTT_VEHICLE_APPROACH
@@ -46,7 +46,7 @@
 #endif
 
 #ifndef MQTT_SPAT_STALE_MS
-#define MQTT_SPAT_STALE_MS 2500
+#define MQTT_SPAT_STALE_MS 120000UL
 #endif
 
 #ifndef MQTT_RECONNECT_INTERVAL_MS
