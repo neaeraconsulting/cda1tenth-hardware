@@ -54,6 +54,7 @@ const uint8_t signalRightButton = 0x02;
 const uint8_t headlightsButton = 0x04;
 const uint8_t hazardButton = 0x08;
 const uint8_t zeroSteeringButton = 0x10;
+const uint8_t trafficOverrideButton = 0x20;
 
 // Global objects
 Car car(CS_RIGHT, CS_LEFT, CS_STEER);
@@ -72,6 +73,7 @@ uint8_t last_buttons = 0;
 unsigned long last_command_ms = 0;
 bool ble_device_connected = false;
 bool last_ble_device_connected = false;
+bool traffic_override_enabled = false;
 float last_motion_light_linear_x = 0.0f;
 unsigned long brake_lights_until_ms = 0;
 FrontLights::SignalState signal_auto_cancel_state = FrontLights::SignalState::Off;
@@ -98,6 +100,7 @@ void handleButtonToggles(uint8_t buttons);
 void updateRearMotionLights(unsigned long now_ms, float speed_multiplier);
 void updateSignalAutoCancel(float actual_steering_angle);
 bool isSteeringOutsideActiveSignalCancelZone(float actual_steering_angle, FrontLights::SignalState signal_state);
+float trafficSpeedMultiplier();
 void printStatus();
 void setSteeringOffset(float offset, bool save);
 void zeroSteering();
@@ -190,7 +193,7 @@ void loop()
 
   if (!waiting_for_connection)
   {
-    updateRearMotionLights(now, traffic_gate.speedMultiplier());
+    updateRearMotionLights(now, trafficSpeedMultiplier());
   }
 
   front_lights.update(now);
@@ -409,6 +412,12 @@ void handleButtonToggles(uint8_t buttons)
   {
     zeroSteering();
   }
+
+  if ((pressed & trafficOverrideButton) != 0)
+  {
+    traffic_override_enabled = !traffic_override_enabled;
+    sendBleResponse(traffic_override_enabled ? "OK traffic override on" : "OK traffic override off");
+  }
 }
 
 void setVehicleSignalState(FrontLights::SignalState state)
@@ -433,6 +442,11 @@ void updateRearMotionLights(unsigned long now_ms, float speed_multiplier)
   rear_lights.setBrakeLights(current_speed <= MIN_VELOCITY_THRESHOLD || now_ms < brake_lights_until_ms);
   rear_lights.setReverse(current_linear_x < -MIN_VELOCITY_THRESHOLD);
   last_motion_light_linear_x = current_linear_x;
+}
+
+float trafficSpeedMultiplier()
+{
+  return traffic_override_enabled ? 1.0f : traffic_gate.speedMultiplier();
 }
 
 void updateSignalAutoCancel(float actual_steering_angle)
@@ -665,12 +679,13 @@ void handleBleTextCommand(const std::string &packet)
     snprintf(
         message,
         sizeof(message),
-        "T en=%d mqtt=%d group=%d state=%s mul=%.1f t=%d",
+        "T en=%d mqtt=%d ov=%d group=%d state=%s mul=%.1f t=%d",
         traffic_gate.isEnabled() ? 1 : 0,
         traffic_gate.isConnected() ? 1 : 0,
+        traffic_override_enabled ? 1 : 0,
         traffic_gate.signalGroup(),
         traffic_gate.movementStateName(),
-        traffic_gate.speedMultiplier(),
+        trafficSpeedMultiplier(),
         traffic_gate.timeRemaining());
     sendBleResponse(message);
   }
@@ -746,7 +761,7 @@ void moveBase()
 {
   float linear_x = command_linear_x;
   float angular_z = command_angular_z;
-  float traffic_speed_multiplier = traffic_gate.speedMultiplier();
+  float traffic_speed_multiplier = trafficSpeedMultiplier();
   float steering_angle = 0.0f;
 
   if (fabs(linear_x) > MIN_VELOCITY_THRESHOLD && fabs(angular_z) > MIN_VELOCITY_THRESHOLD)
