@@ -99,6 +99,7 @@ void SteeringMotor::setCarSpeed(float speed)
 void SteeringMotor::enableMotor(bool enable)
 {
   motorEnabled = enable;
+  driver.toff(enable ? 4 : 0);
 }
 
 void SteeringMotor::setEncoderOffset(float offset)
