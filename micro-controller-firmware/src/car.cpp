@@ -118,11 +118,13 @@ void SteeringMotor::updatePosition()
 
   if (!motorEnabled)
   {
+    correctionActive = false;
     return;
   }
 
   float currentAngle = normalizeAngle(getSteeringAngle() - angleOffset);
   float error = normalizeAngle(targetAngle - currentAngle);
+  float absoluteError = fabsf(error);
 
   if (fabsf(currentAngle - lastExternalAngle) < SMALL_MOVEMENT_THRESHOLD)
   {
@@ -136,7 +138,6 @@ void SteeringMotor::updatePosition()
 
   float stepsPerRev = MOTOR_STEPS * MICROSTEPS;
   int32_t currentSteps = (int32_t)((currentAngle / 360.0f) * stepsPerRev * STEERING_GEAR_RATIO);
-  int32_t targetSteps = (int32_t)((targetAngle / 360.0f) * stepsPerRev * STEERING_GEAR_RATIO);
 
   if (stallCounter > STALL_DETECTION_COUNT)
   {
@@ -144,12 +145,19 @@ void SteeringMotor::updatePosition()
     stallCounter = 0;
   }
 
-  if (fabsf(error) > STEERING_MAX_ALLOWED_ERROR && fabsf(carSpeed) > 0.1f)
+  if (correctionActive)
+  {
+    correctionActive = absoluteError > STEERING_CORRECTION_STOP_ERROR_DEG;
+  }
+  else
+  {
+    correctionActive = absoluteError > STEERING_CORRECTION_START_ERROR_DEG;
+  }
+
+  if (correctionActive && fabsf(carSpeed) > 0.1f)
   {
     float maxCorrectionSteps = 200.0f;
     int32_t correctionSteps = (int32_t)(error * stepsPerRev * STEERING_GEAR_RATIO / 360.0f);
-
-    correctionSteps = (int32_t)(correctionSteps * 1.5f);
 
     if (correctionSteps > maxCorrectionSteps)
       correctionSteps = maxCorrectionSteps;
@@ -161,7 +169,7 @@ void SteeringMotor::updatePosition()
   }
   else
   {
-    driver.XTARGET(currentSteps);
+    // Preserve the last correction target inside the hysteresis band.
   }
 }
 
