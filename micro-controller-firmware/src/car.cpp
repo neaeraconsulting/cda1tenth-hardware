@@ -53,7 +53,23 @@ float SteeringMotor::normalizeAngle(float angle) const
 
 float SteeringMotor::getSteeringAngle() const
 {
-  int raw = analogRead(STEERING_SENSOR_PIN);
+  int samples[5];
+  for (int i = 0; i < 5; i++)
+    samples[i] = analogRead(STEERING_SENSOR_PIN);
+
+  for (int i = 1; i < 5; i++)
+  {
+    int value = samples[i];
+    int j = i - 1;
+    while (j >= 0 && samples[j] > value)
+    {
+      samples[j + 1] = samples[j];
+      j--;
+    }
+    samples[j + 1] = value;
+  }
+
+  int raw = samples[2];
   float angle = ((float)raw / STEERING_SENSOR_MAX_VALUE) * DEGREES_PER_REVOLUTION;
   return angle;
 }
