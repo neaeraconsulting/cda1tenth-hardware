@@ -13,9 +13,7 @@ void SteeringMotor::begin()
   driver.microsteps(MICROSTEPS);
   driver.RAMPMODE(0);
 
-  driver.rms_current(200);
-  driver.ihold(3);
-  driver.irun(15);
+  driver.rms_current(STEERING_RUN_CURRENT_MA, STEERING_HOLD_MULTIPLIER);
   driver.iholddelay(5);
 
   driver.en_pwm_mode(true);
@@ -85,16 +83,6 @@ void SteeringMotor::setCarSpeed(float speed)
 void SteeringMotor::enableMotor(bool enable)
 {
   motorEnabled = enable;
-  if (enable)
-  {
-    driver.ihold(5);
-    driver.irun(50);
-  }
-  else
-  {
-    driver.ihold(0);
-    driver.irun(0);
-  }
 }
 
 void SteeringMotor::setEncoderOffset(float offset)
@@ -175,9 +163,7 @@ void DriveMotor::begin()
   driver.shaft(true);
   driver.X_ENC(0);
 
-  driver.rms_current(600);
-  driver.ihold(5);
-  driver.irun(20);
+  driver.rms_current(DRIVE_RUN_CURRENT_MA, DRIVE_HOLD_MULTIPLIER);
   driver.iholddelay(5);
 
   driver.en_pwm_mode(true);
