@@ -5,8 +5,5 @@
         "bierner.markdown-mermaid",
         "ms-vscode.cpptools-extension-pack",
         "platformio.platformio-ide"
-    ],
-    "unwantedRecommendations": [
-        "ms-vscode.cpptools-extension-pack"
     ]
 }

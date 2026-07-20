@@ -13,7 +13,7 @@ void SteeringMotor::begin()
   driver.microsteps(MICROSTEPS);
   driver.RAMPMODE(0);
 
-  driver.rms_current(STEERING_RUN_CURRENT_MA, STEERING_HOLD_CURRENT_MULTIPLIER);
+  driver.rms_current(STEERING_RUN_CURRENT_MA, STEERING_HOLD_MULTIPLIER);
   driver.iholddelay(5);
 
   driver.en_pwm_mode(true);
@@ -99,6 +99,7 @@ void SteeringMotor::setCarSpeed(float speed)
 void SteeringMotor::enableMotor(bool enable)
 {
   motorEnabled = enable;
+  driver.toff(enable ? 4 : 0);
 }
 
 void SteeringMotor::setEncoderOffset(float offset)
@@ -110,12 +111,11 @@ void SteeringMotor::updatePosition()
 {
   uint32_t now = micros();
 
-  // Temporarily keep steering enabled at boot while measuring idle current.
-  // bool shouldEnable = fabsf(carSpeed) > 0.1f;
-  // if (shouldEnable != motorEnabled)
-  // {
-  //   enableMotor(shouldEnable);
-  // }
+  bool shouldEnable = fabsf(carSpeed) > 0.1f;
+  if (shouldEnable != motorEnabled)
+  {
+    enableMotor(shouldEnable);
+  }
 
   if (!motorEnabled)
   {
@@ -160,8 +160,6 @@ void SteeringMotor::updatePosition()
     float maxCorrectionSteps = 200.0f;
     int32_t correctionSteps = (int32_t)(error * stepsPerRev * STEERING_GEAR_RATIO / 360.0f);
 
-    // correctionSteps = (int32_t)(correctionSteps * 1.5f);
-
     if (correctionSteps > maxCorrectionSteps)
       correctionSteps = maxCorrectionSteps;
     else if (correctionSteps < -maxCorrectionSteps)
@@ -172,7 +170,7 @@ void SteeringMotor::updatePosition()
   }
   else
   {
-    // driver.XTARGET(currentSteps);
+    // Preserve the last correction target inside the hysteresis band.
   }
 }
 
@@ -190,7 +188,7 @@ void DriveMotor::begin()
   driver.shaft(true);
   driver.X_ENC(0);
 
-  driver.rms_current(DRIVE_RUN_CURRENT_MA, DRIVE_HOLD_CURRENT_MULTIPLIER);
+  driver.rms_current(DRIVE_RUN_CURRENT_MA, DRIVE_HOLD_MULTIPLIER);
   driver.iholddelay(5);
 
   driver.en_pwm_mode(true);
