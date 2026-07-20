@@ -13,7 +13,7 @@ void SteeringMotor::begin()
   driver.microsteps(MICROSTEPS);
   driver.RAMPMODE(0);
 
-  driver.rms_current(STEERING_RUN_CURRENT_MA, STEERING_HOLD_MULTIPLIER);
+  driver.rms_current(STEERING_RUN_CURRENT_MA, STEERING_HOLD_CURRENT_MULTIPLIER);
   driver.iholddelay(5);
 
   driver.en_pwm_mode(true);
@@ -53,7 +53,23 @@ float SteeringMotor::normalizeAngle(float angle) const
 
 float SteeringMotor::getSteeringAngle() const
 {
-  int raw = analogRead(STEERING_SENSOR_PIN);
+  int samples[5];
+  for (int i = 0; i < 5; i++)
+    samples[i] = analogRead(STEERING_SENSOR_PIN);
+
+  for (int i = 1; i < 5; i++)
+  {
+    int value = samples[i];
+    int j = i - 1;
+    while (j >= 0 && samples[j] > value)
+    {
+      samples[j + 1] = samples[j];
+      j--;
+    }
+    samples[j + 1] = value;
+  }
+
+  int raw = samples[2];
   float angle = ((float)raw / STEERING_SENSOR_MAX_VALUE) * DEGREES_PER_REVOLUTION;
   return angle;
 }
@@ -94,19 +110,22 @@ void SteeringMotor::updatePosition()
 {
   uint32_t now = micros();
 
-  bool shouldEnable = fabsf(carSpeed) > 0.1f;
-  if (shouldEnable != motorEnabled)
-  {
-    enableMotor(shouldEnable);
-  }
+  // Temporarily keep steering enabled at boot while measuring idle current.
+  // bool shouldEnable = fabsf(carSpeed) > 0.1f;
+  // if (shouldEnable != motorEnabled)
+  // {
+  //   enableMotor(shouldEnable);
+  // }
 
   if (!motorEnabled)
   {
+    correctionActive = false;
     return;
   }
 
   float currentAngle = normalizeAngle(getSteeringAngle() - angleOffset);
   float error = normalizeAngle(targetAngle - currentAngle);
+  float absoluteError = fabsf(error);
 
   if (fabsf(currentAngle - lastExternalAngle) < SMALL_MOVEMENT_THRESHOLD)
   {
@@ -120,7 +139,6 @@ void SteeringMotor::updatePosition()
 
   float stepsPerRev = MOTOR_STEPS * MICROSTEPS;
   int32_t currentSteps = (int32_t)((currentAngle / 360.0f) * stepsPerRev * STEERING_GEAR_RATIO);
-  int32_t targetSteps = (int32_t)((targetAngle / 360.0f) * stepsPerRev * STEERING_GEAR_RATIO);
 
   if (stallCounter > STALL_DETECTION_COUNT)
   {
@@ -128,12 +146,21 @@ void SteeringMotor::updatePosition()
     stallCounter = 0;
   }
 
-  if (fabsf(error) > STEERING_MAX_ALLOWED_ERROR && fabsf(carSpeed) > 0.1f)
+  if (correctionActive)
+  {
+    correctionActive = absoluteError > STEERING_CORRECTION_STOP_ERROR_DEG;
+  }
+  else
+  {
+    correctionActive = absoluteError > STEERING_CORRECTION_START_ERROR_DEG;
+  }
+
+  if (correctionActive && fabsf(carSpeed) > 0.1f)
   {
     float maxCorrectionSteps = 200.0f;
     int32_t correctionSteps = (int32_t)(error * stepsPerRev * STEERING_GEAR_RATIO / 360.0f);
 
-    correctionSteps = (int32_t)(correctionSteps * 1.5f);
+    // correctionSteps = (int32_t)(correctionSteps * 1.5f);
 
     if (correctionSteps > maxCorrectionSteps)
       correctionSteps = maxCorrectionSteps;
@@ -145,7 +172,7 @@ void SteeringMotor::updatePosition()
   }
   else
   {
-    driver.XTARGET(currentSteps);
+    // driver.XTARGET(currentSteps);
   }
 }
 
@@ -163,7 +190,7 @@ void DriveMotor::begin()
   driver.shaft(true);
   driver.X_ENC(0);
 
-  driver.rms_current(DRIVE_RUN_CURRENT_MA, DRIVE_HOLD_MULTIPLIER);
+  driver.rms_current(DRIVE_RUN_CURRENT_MA, DRIVE_HOLD_CURRENT_MULTIPLIER);
   driver.iholddelay(5);
 
   driver.en_pwm_mode(true);
