@@ -39,6 +39,7 @@ void SteeringMotor::begin()
   driver.d1(1000);
   driver.VSTOP(10);
 
+  enableMotor(false);
   lastCorrectionMicros = micros();
 }
 
@@ -83,6 +84,7 @@ void SteeringMotor::setTargetAngle(float angle)
   }
 
   targetAngle = newTargetAngle;
+  enableMotor(true);
 
   float stepsPerRev = MOTOR_STEPS * MICROSTEPS;
   float currentAngle = normalizeAngle(getSteeringAngle() - angleOffset);
@@ -99,6 +101,10 @@ void SteeringMotor::setCarSpeed(float speed)
 void SteeringMotor::enableMotor(bool enable)
 {
   motorEnabled = enable;
+  driver.toff(enable ? 4 : 0);
+
+  if (!enable)
+    correctionActive = false;
 }
 
 void SteeringMotor::setEncoderOffset(float offset)
@@ -110,15 +116,11 @@ void SteeringMotor::updatePosition()
 {
   uint32_t now = micros();
 
-  bool shouldEnable = fabsf(carSpeed) > 0.1f;
-  if (shouldEnable != motorEnabled)
-  {
-    enableMotor(shouldEnable);
-  }
+  if (fabsf(carSpeed) > 0.1f && !motorEnabled)
+    enableMotor(true);
 
   if (!motorEnabled)
   {
-    correctionActive = false;
     return;
   }
 
@@ -154,7 +156,7 @@ void SteeringMotor::updatePosition()
     correctionActive = absoluteError > STEERING_CORRECTION_START_ERROR_DEG;
   }
 
-  if (correctionActive && fabsf(carSpeed) > 0.1f)
+  if (correctionActive)
   {
     float maxCorrectionSteps = 200.0f;
     int32_t correctionSteps = (int32_t)(error * stepsPerRev * STEERING_GEAR_RATIO / 360.0f);
@@ -167,9 +169,9 @@ void SteeringMotor::updatePosition()
     int32_t newTargetSteps = currentSteps + correctionSteps;
     driver.XTARGET(newTargetSteps);
   }
-  else
+  else if (fabsf(carSpeed) <= 0.1f)
   {
-    // Preserve the last correction target inside the hysteresis band.
+    enableMotor(false);
   }
 }
 
