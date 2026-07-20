@@ -13,7 +13,7 @@ void SteeringMotor::begin()
   driver.microsteps(MICROSTEPS);
   driver.RAMPMODE(0);
 
-  driver.rms_current(STEERING_RMS_CURRENT_MA, STEERING_HOLD_CURRENT_MULTIPLIER);
+  driver.rms_current(STEERING_RUN_CURRENT_MA, STEERING_HOLD_CURRENT_MULTIPLIER);
   driver.iholddelay(5);
 
   driver.en_pwm_mode(true);
@@ -31,12 +31,12 @@ void SteeringMotor::begin()
   driver.pwm_grad(1);
   driver.pwm_ofs(247);
 
-  driver.a1(2000);
-  driver.v1(2000);
-  driver.AMAX(4000);
-  driver.DMAX(4000);
-  driver.VMAX(6000);
-  driver.d1(2000);
+  driver.a1(1000);
+  driver.v1(1000);
+  driver.AMAX(2000);
+  driver.DMAX(2000);
+  driver.VMAX(3000);
+  driver.d1(1000);
   driver.VSTOP(10);
 
   lastCorrectionMicros = micros();
@@ -99,15 +99,6 @@ void SteeringMotor::setCarSpeed(float speed)
 void SteeringMotor::enableMotor(bool enable)
 {
   motorEnabled = enable;
-  if (enable)
-  {
-    driver.rms_current(STEERING_RMS_CURRENT_MA, STEERING_HOLD_CURRENT_MULTIPLIER);
-  }
-  else
-  {
-    driver.ihold(0);
-    driver.irun(0);
-  }
 }
 
 void SteeringMotor::setEncoderOffset(float offset)
@@ -119,11 +110,12 @@ void SteeringMotor::updatePosition()
 {
   uint32_t now = micros();
 
-  bool shouldEnable = fabsf(carSpeed) > 0.1f;
-  if (shouldEnable != motorEnabled)
-  {
-    enableMotor(shouldEnable);
-  }
+  // Temporarily keep steering enabled at boot while measuring idle current.
+  // bool shouldEnable = fabsf(carSpeed) > 0.1f;
+  // if (shouldEnable != motorEnabled)
+  // {
+  //   enableMotor(shouldEnable);
+  // }
 
   if (!motorEnabled)
   {
@@ -198,9 +190,7 @@ void DriveMotor::begin()
   driver.shaft(true);
   driver.X_ENC(0);
 
-  driver.rms_current(600);
-  driver.ihold(5);
-  driver.irun(20);
+  driver.rms_current(DRIVE_RUN_CURRENT_MA, DRIVE_HOLD_CURRENT_MULTIPLIER);
   driver.iholddelay(5);
 
   driver.en_pwm_mode(true);
