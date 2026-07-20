@@ -49,7 +49,7 @@ public:
   float lastExternalAngle = 0.0f;
   int stallCounter = 0;
   float carSpeed = 0.0f;
-  bool motorEnabled = false;
+  bool motorEnabled = true;
   bool correctionActive = false;
 
   SteeringMotor(int cs);
