@@ -21,9 +21,9 @@
 #define MICROSTEPS 16
 
 #define STEERING_RUN_CURRENT_MA 400
-#define STEERING_HOLD_CURRENT_MULTIPLIER 0.20f
+#define STEERING_HOLD_MULTIPLIER 0.20f
 #define DRIVE_RUN_CURRENT_MA 800
-#define DRIVE_HOLD_CURRENT_MULTIPLIER 0.30f
+#define DRIVE_HOLD_MULTIPLIER 0.30f
 
 // Steering sensor parameters
 #define STEERING_SENSOR_PIN 18
@@ -33,8 +33,7 @@
 // Steering control parameters
 #define STEERING_CORRECTION_INTERVAL 10000
 #define STEERING_GEAR_RATIO (55.0f / 12.0f)
-#define STEERING_CORRECTION_START_ERROR_DEG 2.0f
-#define STEERING_CORRECTION_STOP_ERROR_DEG 1.0f
+#define STEERING_MAX_ALLOWED_ERROR 1.5f
 #define STALL_DETECTION_COUNT 8
 #define SMALL_MOVEMENT_THRESHOLD 0.2f
 
@@ -50,7 +49,6 @@ public:
   int stallCounter = 0;
   float carSpeed = 0.0f;
   bool motorEnabled = true;
-  bool correctionActive = false;
 
   SteeringMotor(int cs);
   void begin();
