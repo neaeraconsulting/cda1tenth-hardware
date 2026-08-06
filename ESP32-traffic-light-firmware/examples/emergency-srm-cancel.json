@@ -1,0 +1,28 @@
+{
+  "messageId": 29,
+  "value": {
+    "SignalRequestMessage": {
+      "second": 18000,
+      "sequenceNumber": 2,
+      "requests": [
+        {
+          "request": {
+            "id": {
+              "id": 1
+            },
+            "requestID": 7,
+            "requestType": "priorityCancellation"
+          }
+        }
+      ],
+      "requestor": {
+        "id": {
+          "entityID": "01020304"
+        },
+        "type": {
+          "role": "fire"
+        }
+      }
+    }
+  }
+}

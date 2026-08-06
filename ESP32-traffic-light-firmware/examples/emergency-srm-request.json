@@ -1,0 +1,32 @@
+{
+  "messageId": 29,
+  "value": {
+    "SignalRequestMessage": {
+      "second": 12000,
+      "sequenceNumber": 1,
+      "requests": [
+        {
+          "request": {
+            "id": {
+              "id": 1
+            },
+            "requestID": 7,
+            "requestType": "priorityRequest",
+            "inBoundLane": {
+              "lane": 5
+            }
+          },
+          "duration": 100
+        }
+      ],
+      "requestor": {
+        "id": {
+          "entityID": "01020304"
+        },
+        "type": {
+          "role": "fire"
+        }
+      }
+    }
+  }
+}
